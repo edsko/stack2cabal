@@ -1,0 +1,44 @@
+name:                stack2cabal
+version:             0.1.0.0
+-- synopsis:
+-- description:
+license:             BSD3
+license-file:        LICENSE
+author:              Edsko de Vries
+maintainer:          edsko@well-typed.com
+-- copyright:
+-- category:
+build-type:          Simple
+extra-source-files:  ChangeLog.md
+cabal-version:       >=1.10
+
+executable stack2cabal
+  main-is:             Main.hs
+  other-modules:       Stack2Cabal.Cabal
+                       Stack2Cabal.ExtraDeps
+                       Stack2Cabal.LocalPkgs
+                       Stack2Cabal.Options
+                       Stack2Cabal.RemotePkgs
+                       Stack2Cabal.RemotePkgs
+                       Stack2Cabal.Resolver
+                       Stack2Cabal.StackYaml
+                       Stack2Cabal.Util
+  build-depends:       base >=4.9 && <4.10
+                     , aeson
+                     , containers
+                     , directory
+                     , filepath
+                     , http-conduit
+                     , optparse-applicative
+                     , process
+                     , text
+                     , unordered-containers
+                     , utf8-string
+                     , yaml
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  default-extensions:  OverloadedStrings
+                       RecordWildCards
+                       ScopedTypeVariables
+                       TupleSections
+  ghc-options:         -Wall
