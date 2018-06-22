@@ -41,7 +41,7 @@ writeCabalProjectFile remPkgsDir parsedYaml@ParsedYaml{..} = do
 
       hPutStrLn h ""
 
-      -- 2) Flags TODO
+      -- 2) Flags
       forM_ (getKeyed stackFlags) $ \(pkg, flags) -> do
         hPutStrLn h $ "package " ++ pkg
         hPutStr   h $ "  flags: "
