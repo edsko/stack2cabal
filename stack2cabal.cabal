@@ -16,6 +16,7 @@ executable stack2cabal
   main-is:             Main.hs
   other-modules:       Stack2Cabal.Cabal
                        Stack2Cabal.ExtraDeps
+                       Stack2Cabal.Keyed
                        Stack2Cabal.LocalPkgs
                        Stack2Cabal.Options
                        Stack2Cabal.RemotePkgs
@@ -23,11 +24,12 @@ executable stack2cabal
                        Stack2Cabal.Resolver
                        Stack2Cabal.StackYaml
                        Stack2Cabal.Util
-  build-depends:       base >=4.9 && <4.10
+  build-depends:       base >=4.9 && <4.11
                      , aeson
                      , containers
                      , directory
                      , filepath
+                     , generics-sop
                      , http-conduit
                      , optparse-applicative
                      , process
@@ -37,8 +39,12 @@ executable stack2cabal
                      , yaml
   hs-source-dirs:      src
   default-language:    Haskell2010
-  default-extensions:  OverloadedStrings
+  default-extensions:  DataKinds
+                       GADTs
+                       KindSignatures
+                       OverloadedStrings
                        RecordWildCards
                        ScopedTypeVariables
                        TupleSections
+                       TypeOperators
   ghc-options:         -Wall

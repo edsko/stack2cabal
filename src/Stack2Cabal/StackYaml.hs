@@ -9,7 +9,6 @@ module Stack2Cabal.StackYaml (
   , RemotePackage(..)
   , Location(..)
   , Dependency(..)
-  , Keyed(..)
     -- * Parsing
   , readStackYaml
   ) where
@@ -23,10 +22,11 @@ import Data.Either
 import Data.List
 import Data.Yaml
 
-import qualified Data.HashMap.Strict as HM
-import qualified Data.Text           as T
+import qualified Data.Text as T
 
 import Stack2Cabal.Util
+import Stack2Cabal.Keyed (Keyed)
+import qualified Stack2Cabal.Keyed as Keyed
 
 {-------------------------------------------------------------------------------
   Representation of the stack .yaml file
@@ -58,6 +58,9 @@ data ParsedYaml = ParsedYaml {
 
       -- | Flags (pkg -> flag -> bool)
     , stackFlags :: Keyed (Keyed Bool)
+
+      -- | GHC options (pkg -> options)
+    , stackGhcOptions :: Keyed String
     }
   deriving (Show)
 
@@ -81,9 +84,6 @@ data Dependency = Dependency {
     }
   deriving (Show)
 
-data Keyed a = Keyed { getKeyed :: [(String, a)] }
-  deriving (Show)
-
 {-------------------------------------------------------------------------------
   Internal types
 -------------------------------------------------------------------------------}
@@ -104,10 +104,11 @@ data LocationWithSubdirs = LocationWithSubdirs Location (Maybe [String])
 instance FromJSON StackYaml where
   parseJSON = keepValue StackYaml $
       withObject "Stack yaml file" $ \obj -> do
-        stackResolver  <- obj .: "resolver"
-        packages       <- obj .: "packages"
-        stackExtraDeps <- obj .: "extra-deps"
-        stackFlags     <- obj .: "flags"
+        stackResolver   <- obj .:  "resolver"
+        packages        <- obj .:  "packages"
+        stackExtraDeps  <- obj .:? "extra-deps"  .!= []
+        stackFlags      <- obj .:? "flags"       .!= Keyed.empty
+        stackGhcOptions <- obj .:? "ghc-options" .!= Keyed.empty
         let (stackLocalPackages, stackRemotePackages) = partitionPackages packages
         return ParsedYaml{..}
 
@@ -138,9 +139,6 @@ instance FromJSON Dependency where
               let pkg = intercalate "-" (reverse pkgRev)
               return $ Dependency pkg version
 
-instance FromJSON a => FromJSON (Keyed a) where
-  parseJSON = fmap Keyed . parseMap parseJSON
-
 {-------------------------------------------------------------------------------
   Aeson auxiliary
 -------------------------------------------------------------------------------}
@@ -162,14 +160,6 @@ withString :: String
            -> (Value  -> Parser a)
 withString _    p (String str) = p (T.unpack str)
 withString err  _ wat          = typeMismatch err wat
-
-parseMap :: forall b.
-            (Value -> Parser b)
-         -> (Value -> Parser [(String, b)])
-parseMap p = withObject "map" $ \obj -> go (HM.toList obj)
-  where
-    go :: [(T.Text, Value)] -> Parser [(String, b)]
-    go = mapM $ \(key, val) -> (T.unpack key, ) <$> p val
 
 {-------------------------------------------------------------------------------
   Read the file

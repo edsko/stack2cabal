@@ -6,12 +6,14 @@ import Control.Exception
 import Control.Monad
 import System.Directory
 import System.IO
+import Generics.SOP (NP(..))
 
 import Stack2Cabal.ExtraDeps
 import Stack2Cabal.LocalPkgs
 import Stack2Cabal.RemotePkgs
 import Stack2Cabal.Resolver
 import Stack2Cabal.StackYaml
+import qualified Stack2Cabal.Keyed as Keyed
 
 writeCabalProjectFile :: FilePath -> ParsedYaml -> IO ()
 writeCabalProjectFile remPkgsDir parsedYaml@ParsedYaml{..} = do
@@ -19,10 +21,10 @@ writeCabalProjectFile remPkgsDir parsedYaml@ParsedYaml{..} = do
     when alreadyExists $
       throwIO (userError "cabal.project already exists. Refusing to overwrite.")
     withFile "cabal.project" WriteMode $ \h -> do
-      -- 1) Packages
+      -- Packages
       hPutStrLn h "packages:"
 
-      -- 1a) Local packages
+      -- .. local packages
       hPutStrLn h "-- local packages"
       do cabalFiles <- mapM findCabalFile stackLocalPackages
          forM_ (zip (True : repeat False) cabalFiles) $ \(isFirst, cabalFile) ->
@@ -32,7 +34,7 @@ writeCabalProjectFile remPkgsDir parsedYaml@ParsedYaml{..} = do
              , cabalFile
              ]
 
-      -- 1b) Remote packages
+      -- .. remote packages
       hPutStrLn h "-- remote packages"
       do forM_ stackRemotePackages $ \remPkg -> do
            cabalFiles <- remotePkgCabalFiles remPkgsDir remPkg
@@ -41,19 +43,29 @@ writeCabalProjectFile remPkgsDir parsedYaml@ParsedYaml{..} = do
 
       hPutStrLn h ""
 
-      -- 2) Flags
-      forM_ (getKeyed stackFlags) $ \(pkg, flags) -> do
+      -- Flags and options
+      let combined = Keyed.zip $ stackFlags
+                              :* stackGhcOptions
+                              :* Nil
+      forM_ (Keyed.toList combined) $ \(pkg, mFlags :* mGhcOptions :* Nil) -> do
         hPutStrLn h $ "package " ++ pkg
-        hPutStr   h $ "  flags: "
-        forM_ (getKeyed flags) $ \(flag, value) ->
-          hPutStr h $ concat [
-              if value then "+" else "-"
-            , flag
-            , " "
-            ]
-        hPutStrLn h "\n"
 
-      -- 3) Constraints
+        -- .. flags
+        forM_ mFlags $ \flags -> do
+          hPutStr h $ "  flags: "
+          forM_ (Keyed.toList flags) $ \(flag, value) ->
+            hPutStr h $ concat [
+                if value then "+" else "-"
+              , flag
+              , " "
+              ]
+          hPutStrLn h "\n"
+
+        -- .. ghc options
+        forM_ mGhcOptions $ \ghcOptions -> do
+          hPutStrLn h $ "  ghc-options: " ++ ghcOptions
+
+      -- Constraints
       allConstraints <- downloadCabalConfig stackResolver
       extraDeps      <- findExtraDeps remPkgsDir parsedYaml
       let constraints = filter ((`notElem` extraDeps) . depPackageName)
