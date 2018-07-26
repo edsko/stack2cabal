@@ -1,16 +1,23 @@
 module Stack2Cabal.Keyed (
     Keyed -- opaque
   , empty
+  , fromMap
+  , toMap
   , fromList
   , toList
+  , map
+  , unionsWith
   , zip
   ) where
 
-import Prelude hiding (zip)
+import Prelude hiding (zip, map)
 import Control.Applicative hiding (empty)
 import Data.Aeson.Types
+import Data.Coerce
 import Data.Map.Strict (Map)
 import Generics.SOP hiding (fromList)
+import Generics.SOP.NS
+import Generics.SOP.NP hiding (fromList)
 
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict     as Map
@@ -20,14 +27,20 @@ import qualified Data.Text           as T
   Keyed data
 -------------------------------------------------------------------------------}
 
-data Keyed a = Keyed { toMap :: Map String a }
+newtype Keyed a = Keyed { toMap :: Map String a }
   deriving (Show)
 
 empty :: Keyed a
 empty = fromMap Map.empty
 
 fromMap :: Map String a -> Keyed a
-fromMap = Keyed
+fromMap = coerce
+
+map :: (a -> b) -> Keyed a -> Keyed b
+map = coerce . Map.map
+
+unionsWith :: (a -> a -> a) -> [Keyed a] -> Keyed a
+unionsWith = coerce . Map.unionsWith
 
 fromList :: [(String, a)] -> Keyed a
 fromList = fromMap . Map.fromList
@@ -40,30 +53,19 @@ toList = Map.toList . toMap
 -------------------------------------------------------------------------------}
 
 zip :: forall as. SListI as => NP Keyed as -> Keyed (NP Maybe as)
-zip = fromMap
-    . Map.unionsWith (hliftA2 (<|>))
+zip = unionsWith (zipWith_NP (<|>))
     . hcollapse
-    . hliftA2 aux expansions
-    . hliftA toMap
+    . zipWith_NP aux injections
   where
-    aux :: Expansion as a -> Map String a -> K (Map String (NP Maybe as)) a
-    aux e = K . Map.map (unK . apFn e . I)
+    aux :: Injection I as a -> Keyed a -> K (Keyed (NP Maybe as)) a
+    aux i = K . map (expandToMaybes . unK . apFn i . I)
 
 {-------------------------------------------------------------------------------
   Auxiliary generics-SOP
 -------------------------------------------------------------------------------}
 
-type Expansion (xs :: [*]) = I -.-> K (NP Maybe xs)
-
-shiftExpansion :: Expansion xs a -> Expansion (x ': xs) a
-shiftExpansion (Fn f) = Fn $ K . (Nothing :*) . unK . f
-
-expansions :: forall xs. SListI xs => NP (Expansion xs) xs
-expansions =
-    case sList :: SList xs of
-      SNil  -> Nil
-      SCons -> fn (\(I x) -> K $ Just x :* hpure Nothing)
-            :* hliftA shiftExpansion expansions
+expandToMaybes :: SListI as => NS I as -> NP Maybe as
+expandToMaybes = expand_NS Nothing . map_NS (Just . unI)
 
 {-------------------------------------------------------------------------------
   Aason support
