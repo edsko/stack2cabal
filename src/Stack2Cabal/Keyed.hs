@@ -12,16 +12,15 @@ module Stack2Cabal.Keyed (
 
 import Prelude hiding (zip, map)
 import Control.Applicative hiding (empty)
-import Data.Aeson.Types
 import Data.Coerce
 import Data.Map.Strict (Map)
 import Generics.SOP hiding (fromList)
 import Generics.SOP.NS
 import Generics.SOP.NP hiding (fromList)
 
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict     as Map
 import qualified Data.Text           as T
+import Data.YAML
 
 {-------------------------------------------------------------------------------
   Keyed data
@@ -71,15 +70,19 @@ expandToMaybes = expand_NS Nothing . map_NS (Just . unI)
   Aason support
 -------------------------------------------------------------------------------}
 
-instance FromJSON a => FromJSON (Keyed a) where
-  parseJSON = fmap fromList . parseMap parseJSON
+instance FromYAML a => FromYAML (Keyed a) where
+  parseYAML = fmap fromList . parseMap parseYAML
 
 {-------------------------------------------------------------------------------
   Auxiliary Aeson
 -------------------------------------------------------------------------------}
 
-parseMap :: forall b. (Value -> Parser b) -> (Value -> Parser [(String, b)])
-parseMap p = withObject "map" $ \obj -> go (HM.toList obj)
+parseMap :: forall b. (Node -> Parser b) -> (Node -> Parser [(String, b)])
+parseMap p = withMap "map" $ \obj -> go (Map.toList obj)
   where
-    go :: [(T.Text, Value)] -> Parser [(String, b)]
-    go = mapM $ \(key, val) -> (T.unpack key, ) <$> p val
+    go :: [(Node, Node)] -> Parser [(String, b)]
+    go = mapM $ \(key, val) -> (key2str key, ) <$> p val
+
+    key2str :: Node -> String
+    key2str (Scalar (SStr t)) = T.unpack t
+    key2str _ = error "Keyed.parseMap: non-string key encountered in stack.yaml"

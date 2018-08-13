@@ -14,16 +14,15 @@ module Stack2Cabal.StackYaml (
   ) where
 
 import Control.Applicative
-import Control.Exception
 import Control.Monad
-import Data.Aeson.Types (typeMismatch)
 import Data.Coerce (coerce)
 import Data.Either
 import Data.Foldable (asum)
 import Data.List
-import Data.Yaml
-
+import Data.YAML
+import qualified Data.ByteString as B
 import qualified Data.Text as T
+import Data.Text (Text)
 
 import Stack2Cabal.Util
 import Stack2Cabal.Keyed (Keyed)
@@ -40,7 +39,7 @@ type Version      = String
 
 data StackYaml = StackYaml {
       stackYamlParsed :: ParsedYaml
-    , stackYamlRaw    :: Value
+    , stackYamlRaw    :: Node
     }
   deriving (Show)
 
@@ -115,49 +114,55 @@ data LocationWithSubdirs = LocationWithSubdirs Location (Maybe [String])
   Parser
 -------------------------------------------------------------------------------}
 
-instance FromJSON StackYaml where
-  parseJSON = keepValue StackYaml $
-      withObject "Stack yaml file" $ \obj -> do
-        stackResolver   <- obj .:  "resolver"
+-- FromYAML newtype-helper for 'String'
+newtype S = S String
+
+instance FromYAML S where
+  parseYAML = withStr "String" (pure . S . T.unpack)
+
+instance FromYAML StackYaml where
+  parseYAML = keepNode StackYaml $
+      withMap "Stack yaml file" $ \obj -> do
+        stackResolver   <- T.unpack <$> obj .:  "resolver"
         packages        <- obj .:  "packages"
         dependencies    <- obj .:? "extra-deps"  .!= []
         stackFlags      <- obj .:? "flags"       .!= Keyed.empty
-        stackGhcOptions <- obj .:? "ghc-options" .!= Keyed.empty
+        stackGhcOptions <- Keyed.map T.unpack <$> obj .:? "ghc-options" .!= Keyed.empty
         let (stackLocalPackages, remotePkgs) = partitionPackages     packages
             (stackExtraDeps,     remoteDeps) = partitionDependencies dependencies
             stackRemotePackages              = remotePkgs ++ remoteDeps
         return ParsedYaml{..}
 
-instance FromJSON RemotePackage where
-  parseJSON = withObject "remote package" $ \obj -> do
+instance FromYAML RemotePackage where
+  parseYAML = withMap "remote package" $ \obj -> do
       LocationWithSubdirs remPkgLocation locSubdirs <- obj .: "location"
-      remPkgSubdirs  <- (locSubdirs <|>) <$> obj .:? "subdirs"
+      remPkgSubdirs  <- ((locSubdirs <|>) . fmap (map T.unpack)) <$> obj .:? "subdirs"
       remPkgExtraDep <- obj .:? "extra-dep" .!= True
       return RemotePackage{..}
 
-instance FromJSON Package where
-  parseJSON = stringOr (either (Package . Left) (Package . Right)) $ parseJSON
+instance FromYAML Package where
+  parseYAML = stringOr (either (Package . Left) (Package . Right)) $ parseYAML
 
-instance FromJSON DependencyOrRemote where
-  parseJSON val = asum [
-      (DependencyOrRemote . Left)  <$> parseJSON val
-    , (DependencyOrRemote . Right) <$> parseJSON val
+instance FromYAML DependencyOrRemote where
+  parseYAML val = asum [
+      (DependencyOrRemote . Left)  <$> parseYAML val
+    , (DependencyOrRemote . Right) <$> parseYAML val
     ]
 
-instance FromJSON LocationWithSubdirs where
-  parseJSON = withObject "location" $ \obj -> msum [
-        do gitRepo   <- obj .:  "git"
-           gitCommit <- obj .:  "commit"
-           subdirs   <- obj .:? "subdirs"
+instance FromYAML LocationWithSubdirs where
+  parseYAML = withMap "location" $ \obj -> msum [
+        do gitRepo   <- T.unpack <$> obj .:  "git"
+           gitCommit <- T.unpack <$> obj .:  "commit"
+           subdirs   <- fmap (map T.unpack) <$> obj .:? "subdirs"
            return (LocationWithSubdirs Git{..} subdirs)
       ]
 
-instance FromJSON Dependency where
-  parseJSON = withString "extra-deps" $ parseDep
+instance FromYAML Dependency where
+  parseYAML = withStr "extra-deps" $ parseDep
     where
-      parseDep :: String -> Parser Dependency
+      parseDep :: Text -> Parser Dependency
       parseDep str =
-          case reverse (splitWhen (== '-') str) of
+          case reverse (splitWhen (== '-') (T.unpack str)) of
             [] -> fail $ "Could not parse " ++ show str
             version:pkgRev -> do
               let pkg = intercalate "-" (reverse pkgRev)
@@ -168,26 +173,26 @@ instance FromJSON Dependency where
 -------------------------------------------------------------------------------}
 
 -- | Combinator for data type that want to keep the full unparsed value
-keepValue :: (b -> Value -> a)
-          -> (Value -> Parser b)
-          -> (Value -> Parser a)
-keepValue f p v = flip f v <$> p v
+keepNode :: (b -> Node -> a)
+          -> (Node -> Parser b)
+          -> (Node -> Parser a)
+keepNode f p v = flip f v <$> p v
 
 stringOr :: (Either String b -> a)
-         -> (Value -> Parser b)
-         -> (Value -> Parser a)
-stringOr f _ (String str) = return (f (Left (T.unpack str)))
-stringOr f p v            = f . Right <$> p v
+         -> (Node -> Parser b)
+         -> (Node -> Parser a)
+stringOr f _ (Scalar (SStr str)) = return (f (Left $ T.unpack str))
+stringOr f p v                   = f . Right <$> p v
 
-withString :: String
-           -> (String -> Parser a)
-           -> (Value  -> Parser a)
-withString _    p (String str) = p (T.unpack str)
-withString err  _ wat          = typeMismatch err wat
 
 {-------------------------------------------------------------------------------
   Read the file
 -------------------------------------------------------------------------------}
 
 readStackYaml :: FilePath -> IO StackYaml
-readStackYaml fp = decodeFileEither fp >>= either throwIO return
+readStackYaml fp = either fail return . decodeSingleDoc =<< B.readFile fp
+  where
+    decodeSingleDoc bs = case decodeStrict bs of
+                           Right [x] -> Right x
+                           Right _   -> Left "stack.yaml must contain only a single YAML document"
+                           Left e    -> Left e
