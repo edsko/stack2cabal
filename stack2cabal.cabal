@@ -24,7 +24,7 @@ executable stack2cabal
                        Stack2Cabal.Resolver
                        Stack2Cabal.StackYaml
                        Stack2Cabal.Util
-  build-depends:       base >=4.9 && <4.11
+  build-depends:       base >=4.9 && <4.12
                      , aeson
                      , containers
                      , directory
