@@ -19,6 +19,7 @@ import Control.Monad
 import Data.Aeson.Types (typeMismatch)
 import Data.Coerce (coerce)
 import Data.Either
+import Data.Foldable (asum)
 import Data.List
 import Data.Yaml
 
@@ -94,6 +95,19 @@ newtype Package = Package (Either String RemotePackage)
 partitionPackages :: [Package] -> ([String], [RemotePackage])
 partitionPackages = partitionEithers . coerce
 
+-- Similarly, we also split dependencies into regular and remote
+newtype DependencyOrRemote = DependencyOrRemote (Either Dependency LocationWithSubdirs)
+
+partitionDependencies :: [DependencyOrRemote] -> ([Dependency], [RemotePackage])
+partitionDependencies = fmap (map aux) . partitionEithers . coerce
+  where
+    aux :: LocationWithSubdirs -> RemotePackage
+    aux (LocationWithSubdirs loc subdirs) = RemotePackage{
+          remPkgLocation = loc
+        , remPkgSubdirs  = subdirs
+        , remPkgExtraDep = True
+        }
+
 -- For some reason stack allows subdirs as part of the location
 data LocationWithSubdirs = LocationWithSubdirs Location (Maybe [String])
 
@@ -106,19 +120,29 @@ instance FromJSON StackYaml where
       withObject "Stack yaml file" $ \obj -> do
         stackResolver   <- obj .:  "resolver"
         packages        <- obj .:  "packages"
-        stackExtraDeps  <- obj .:? "extra-deps"  .!= []
+        dependencies    <- obj .:? "extra-deps"  .!= []
         stackFlags      <- obj .:? "flags"       .!= Keyed.empty
         stackGhcOptions <- obj .:? "ghc-options" .!= Keyed.empty
-        let (stackLocalPackages, stackRemotePackages) = partitionPackages packages
+        let (stackLocalPackages, remotePkgs) = partitionPackages     packages
+            (stackExtraDeps,     remoteDeps) = partitionDependencies dependencies
+            stackRemotePackages              = remotePkgs ++ remoteDeps
         return ParsedYaml{..}
 
+instance FromJSON RemotePackage where
+  parseJSON = withObject "remote package" $ \obj -> do
+      LocationWithSubdirs remPkgLocation locSubdirs <- obj .: "location"
+      remPkgSubdirs  <- (locSubdirs <|>) <$> obj .:? "subdirs"
+      remPkgExtraDep <- obj .:? "extra-dep" .!= True
+      return RemotePackage{..}
+
 instance FromJSON Package where
-  parseJSON = stringOr (either (Package . Left) (Package . Right)) $
-      withObject "remote package" $ \obj -> do
-        LocationWithSubdirs remPkgLocation locSubdirs <- obj .: "location"
-        remPkgSubdirs  <- (locSubdirs <|>) <$> obj .:? "subdirs"
-        remPkgExtraDep <- obj .:? "extra-dep" .!= True
-        return RemotePackage{..}
+  parseJSON = stringOr (either (Package . Left) (Package . Right)) $ parseJSON
+
+instance FromJSON DependencyOrRemote where
+  parseJSON val = asum [
+      (DependencyOrRemote . Left)  <$> parseJSON val
+    , (DependencyOrRemote . Right) <$> parseJSON val
+    ]
 
 instance FromJSON LocationWithSubdirs where
   parseJSON = withObject "location" $ \obj -> msum [
