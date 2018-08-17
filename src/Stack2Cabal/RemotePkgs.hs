@@ -46,7 +46,7 @@ locationLocalDir remPkgsDir Git{..} = remPkgsDir </> takeBaseName gitRepo
 
 remotePkgCabalFiles :: FilePath -> RemotePackage -> IO [FilePath]
 remotePkgCabalFiles remPkgsDir RemotePackage{..} =
-    mapM findCabalFile cabalDirs
+    mapM findOrMakeCabalFile cabalDirs
   where
     repoDir   = locationLocalDir remPkgsDir remPkgLocation
     cabalDirs = case remPkgSubdirs of
