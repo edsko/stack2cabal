@@ -26,7 +26,7 @@ writeCabalProjectFile remPkgsDir parsedYaml@ParsedYaml{..} = do
 
       -- .. local packages
       hPutStrLn h "-- local packages"
-      do cabalFiles <- mapM findCabalFile stackLocalPackages
+      do cabalFiles <- mapM findOrMakeCabalFile stackLocalPackages
          forM_ (zip (True : repeat False) cabalFiles) $ \(isFirst, cabalFile) ->
            hPutStrLn h $ concat [
                if isFirst then "    "
