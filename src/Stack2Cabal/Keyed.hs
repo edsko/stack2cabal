@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module Stack2Cabal.Keyed (
     Keyed -- opaque
   , empty
