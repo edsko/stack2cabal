@@ -2,3 +2,4 @@ tags
 .ghc.*
 dist-newstyle/
 dist/
+.stack-work
