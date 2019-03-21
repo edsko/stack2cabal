@@ -41,7 +41,7 @@ map :: (a -> b) -> Keyed a -> Keyed b
 map = coerce . Map.map
 
 unionsWith :: (a -> a -> a) -> [Keyed a] -> Keyed a
-unionsWith = coerce . Map.unionsWith
+unionsWith f = Keyed . Map.unionsWith f . fmap toMap
 
 fromList :: [(String, a)] -> Keyed a
 fromList = fromMap . Map.fromList
